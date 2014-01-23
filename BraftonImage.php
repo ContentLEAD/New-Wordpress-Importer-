@@ -3,7 +3,7 @@
  *	Assumptions: 
  *
  *	Wordpress VIP requires all article attributes to be passed in as a single array
- *	Featured images must already exist before passing them through the article attribute array.
+ *	Brafton images must already exist in the feed before passing them through the arguments array.
  * 
  * 	Todo: 	Determine whether a constructor is necessary 
  * 			List global variables if any
