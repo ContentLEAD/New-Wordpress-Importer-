@@ -3,8 +3,20 @@
  *	Assumptions: 
  *
  *	Wordpress VIP requires all article attributes to be passed in as a single array
- *	Brafton images must already exist in the feed before passing them through the arguments array.
+ *	Featured images must already exist before passing them through the article attribute array.
+ *
+ *  example class usage
+ *      $args = array( 
+ *                     'feed_brafton_image_url' => 'http://pictures.brafton.com/Lorem-Ipsum-Caption_1188_8511_0_1_300.jpg' , 
+ *                      'caption' => 'Lorem Ipsum Caption' , 
+ *                      'brafton_image_id' => $brafton_image_id , 
+ *                      'brafton_id' => $brafton_id, 
+ *                      'post_id' => $post_id 
+ *                  ); 
  * 
+ * $article = new BraftonImage($args);
+ * $article->attach_Brafton_Image; 
+ *
  * 	Todo: 	Determine whether a constructor is necessary 
  * 			List global variables if any
  *			List private and public variables that will need to be scoped outside methods
@@ -73,10 +85,9 @@ class BraftonImage {
   }
 
 
-	/**
+    /**
      * Check if article image exists locally in the wordpress database
-	 * and create one if possible should return file path if image is found
-     * @param 	brafton_image_Id -string, photo id taken from the feed
+     * and create one if possible should return file path if image is found
      * @return boolean -true if image already exists as an attachment in database
      * @throws InvalidArgumentException
      */
@@ -118,7 +129,6 @@ class BraftonImage {
 
 	/**
      * Update article image (if image already exists locally)
-     * @param 	post_id 
      * @return boolean - true if article's post thumbnail is successfully updated
      * @throws InvalidArgumentException		
      */
@@ -126,17 +136,17 @@ class BraftonImage {
 	Not sure if a featured image's caption can be changed while setting articles post thumbnail. 
 	Might be forced to insert a new image attachment with a reference to the existing image's File URL
 	***************************************************************************************************/
-	private function attach_Brafton_Image( ) {
+	public function attach_Brafton_Image( ) {
        
     
     //Find existing image's absolute file path
-    $brafton_image_id = $this->args['brafton_image_id'];
-    $image_local_path =  is_Found_Locally($brafton_image_id); 
     $post_image_caption = $this->args['caption'];
     $post_id = $this->args['post_id'];
-    if( $image_local_path ){
+    $brafton_image_id = $this->args['brafton_image_id'];
+    $image_local_path =  is_Found_Locally($brafton_image_id); 
+
+    if( false != $image_local_path  ){
       $wp_filetype = wp_check_filetype($image_local_path), NULL);
-    
       $attachment = array(
                           'post_mime_type' => $wp_filetype['type'],
                           'post_title' => $post_image_caption,
@@ -145,36 +155,41 @@ class BraftonImage {
                           'post_status' => 'inherit'
                         );
       //Generate attachment meta data and attach image to the post
+      //using the existing image local path.
       $attachment_id = wp_insert_attachment( $attachment, $image_local_path,  );
       $attachment_data = wp_genererate_metadata( $attachment_id, $local_image_path );
       $wp_update_attachment_metadata($attachment_id, $attachment_data );  
       update_post_meta($post_id ,'_thumbnail_id', $attachment_id);
       update_post_meta($post_id, 'pic_id', $brafton_image_id);
+      return true; 
     }
     elseif {
       //We need to download a new image and attach it to the article.
       $image_url = $image_details['feed_brafton_image_url'];  
-      $wp_filetype = wp_check_filetype(basename($image_url)), NULL);
-    
-      $attachment = array(
-                          'post_mime_type' => $wp_filetype['type'],
-                          'post_title' => $post_image_caption,
-                          'post_excerpt' => $post_image_caption,
-                          'post_content' => $post_image_caption,
-                          'post_status' => 'inherit'
-                        );
-      //Generate attachment meta data and attach image to the post
-      $post_id = $this->args['post_id'];
-
-      $attachment_id = $this->args['feed_brafton_image_url'];
-      $attachment_data = wp_genererate_metadata( $attachment_id, $local_image_path );
-      $wp_update_attachment_metadata($attachment_id, $attachment_data );  
-      update_post_meta($post_id ,'_thumbnail_id', $attachment_id);
-      update_post_meta($post_id, 'pic_id', $brafton_image_id);
+      $attachment_id = download_Brafton_Image(); 
+      if( false != $attachment_id ) {
+        $wp_filetype = wp_check_filetype(basename($image_url)), NULL);
+      
+        $attachment = array(
+                            'post_mime_type' => $wp_filetype['type'],
+                            'post_title' => $post_image_caption,
+                            'post_excerpt' => $post_image_caption,
+                            'post_content' => $post_image_caption,
+                            'post_status' => 'inherit'
+                          );
+        //Generate attachment meta data and attach image to the post
+        $local_image_path = wp_get_attachment_url($attachment_id);
+        $attachment_data = wp_genererate_metadata( $attachment_id, $local_image_path );
+        $wp_update_attachment_metadata($attachment_id, $attachment_data );  
+        update_post_meta($post_id ,'_thumbnail_id', $attachment_id);
+        update_post_meta($post_id, 'pic_id', $brafton_image_id);
+      }
     }
-    else
-      logMsg('Image was not found locally and could not be attached to the post.');
-    
+    else{
+      logMsg('Image was not found locally and could not be downloaded.');
+      return false;
+    }
+      
   }
 
 	/**
@@ -188,9 +203,16 @@ class BraftonImage {
 	Still investigating ways around using Fopen and Curl 
 	***************************************************************************************************/
 	private function download_Brafton_Image( ) {
-    $feed_brafton_image_url  = $this->args['feed_brafton_image_url'];
-    $image_attachment_id = media_handle_upload( $feed_brafton_image_url );
-    return $image_attachment_id; 
+    $uploads_dir = uploads_Directory_Exists();
+      if( $uploads_dir ) {
+      $feed_brafton_image_url  = $this->args['feed_brafton_image_url'];
+      $image_attachment_id = media_handle_upload( $feed_brafton_image_url );
+      return $image_attachment_id; 
+      }
+      else{
+        //logMsg('Check to make sure the uploads directory exists and has appropriate permissions.'); 
+        return false; 
+      }
 	}
 
 }
